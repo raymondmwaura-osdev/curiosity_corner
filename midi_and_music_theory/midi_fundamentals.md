@@ -121,6 +121,8 @@ Status Byte = [Command (4 bits)][Channel (4 bits)]
 
 A MIDI File always starts with a header chunk, and is followed by one or more track chunks.
 
+A track is a container within a MIDI file that holds a sequence of time-ordered events. Each track contains MIDI messages (such as note on, note off, and control changes) along with their delta times, which specify when each event occurs relative to the previous event. In Format 1 MIDI files, the first track typically contains tempo and time signature information without notes, while subsequent tracks contain note data for different instruments or parts. All tracks in a Format 1 file play simultaneously. Each track can send data to any of the 16 MIDI channels, allowing different tracks to control different instruments.
+
 **File Layout**:
 ```
 MThd [Header Chunk]
@@ -341,6 +343,117 @@ midi.addNote(track, channel, 67, 2, 1, 100)  # G4
 with open("output.mid", "wb") as output_file:
     midi.writeFile(output_file)
 ```
+
+### Playing MIDI Files
+
+```python
+import pygame
+import mido
+import time
+
+# Initialize pygame and its MIDI module
+pygame.init()
+pygame.mixer.init()
+
+# Load the MIDI file
+# This reads the file and parses all the MIDI events
+midi_file = mido.MidiFile('song.mid')
+
+# Print basic info
+print(f"Length: {midi_file.length} seconds")
+print(f"Ticks per beat: {midi_file.ticks_per_beat}")
+
+# OPTION 1: Using pygame.mixer.music (Simplest way)
+# This plays the MIDI file using your computer's built-in synthesizer
+print("Playing MIDI file...")
+pygame.mixer.music.load('song.mid')
+pygame.mixer.music.play()
+
+# Wait for the music to finish
+while pygame.mixer.music.get_busy():
+    time.sleep(1)
+
+print("Done!")
+```
+
+### Playing Note by Note
+
+```python
+import pygame.midi
+import mido
+import time
+
+# Initialize pygame MIDI
+pygame.init()
+pygame.midi.init()
+
+# Open a MIDI output port
+# This connects to your computer's MIDI synthesizer
+# port 0 is usually the default MIDI output device
+player = pygame.midi.Output(0)
+
+# Set instrument (optional)
+# program_change: channel 0, instrument 0 (Acoustic Grand Piano)
+player.set_instrument(0, channel=0)
+
+# Load MIDI file
+midi_file = mido.MidiFile('song.mid')
+
+# Get tempo (default 120 BPM if not specified)
+tempo = 500000  # microseconds per quarter note
+for msg in midi_file.tracks[0]:
+    if msg.type == 'set_tempo':
+        tempo = msg.tempo
+        break
+
+print(f"Tempo: {mido.tempo2bpm(tempo)} BPM")
+print("Playing...")
+
+# Record start time
+start_time = time.time()
+
+# Play through all events
+for msg in mido.merge_tracks(midi_file.tracks):
+    # Calculate how long to wait before this event
+    # msg.time is in ticks, we convert to seconds
+    sleep_time = mido.tick2second(
+        msg.time, 
+        midi_file.ticks_per_beat, 
+        tempo
+    )
+    
+    # Wait the appropriate amount of time
+    time.sleep(sleep_time)
+    
+    # Play the event if it's a note
+    if msg.type == 'note_on':
+        # note_on: channel, note number, velocity, velocity (redundant param)
+        player.note_on(msg.note, msg.velocity, msg.channel)
+        print(f"Playing note {msg.note} at velocity {msg.velocity}")
+    
+    elif msg.type == 'note_off':
+        # Stop the note
+        player.note_off(msg.note, msg.velocity, msg.channel)
+    
+    # Update tempo if it changes mid-song
+    elif msg.type == 'set_tempo':
+        tempo = msg.tempo
+
+# Clean up
+del player
+pygame.midi.quit()
+pygame.quit()
+
+print("Finished playing!")
+```
+
+#### Key Points:
+
+1. **pygame.mixer.music.load()** - Easiest way, plays entire file
+2. **pygame.midi.Output()** - Gives you note-by-note control
+3. **mido.tick2second()** - Converts MIDI ticks to real time
+4. **note_on/note_off** - Start and stop individual notes
+5. **time.sleep()** - Wait between events to maintain timing
 
 ---
 
